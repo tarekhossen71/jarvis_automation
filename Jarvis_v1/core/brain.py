@@ -12,6 +12,7 @@ from config import (
 
 from tools.registry import ToolRegistry
 from tools.system.system_info import get_system_info
+from tools.system.battery import get_battery
 
 
 class Brain:
@@ -66,6 +67,16 @@ class Brain:
                 "system, computer information, or system status."
             ),
             function=get_system_info,
+        )
+
+        self.tools.register(
+            name="get_battery",
+            description=(
+                "Get the current computer battery information. "
+                "Use this tool when the user asks about battery "
+                "percentage, charging status, or remaining battery."
+            ),
+            function=get_battery,
         )
 
     # ==================================================
