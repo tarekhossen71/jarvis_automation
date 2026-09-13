@@ -1,0 +1,1 @@
+JARVIS v3\n\nDynamic AI assistant architecture with Text + Voice support.\n
