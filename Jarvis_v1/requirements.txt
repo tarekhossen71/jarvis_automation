@@ -1,3 +1,16 @@
 google-genai
 python-dotenv
 psutil
+pyautogui
+pillow
+pycaw
+comtypes
+Send2Trash
+pyperclip
+speedtest-cli
+plyer
+SpeechRecognition
+PyAudio
+pywin32
+winotify
+selenium

@@ -11,8 +11,14 @@ from config import (
 )
 
 from tools.registry import ToolRegistry
-from tools.system.system_info import get_system_info
-from tools.system.battery import get_battery
+from tools.tool_register import register_all_tools
+from tools.clipboard.clipboard_manager import start_clipboard_monitor
+from tools.reminders.reminder_manager import (
+    start_reminder_monitor,
+)
+
+from core.memory import MemoryManager
+from core.context import ContextManager
 
 
 class Brain:
@@ -30,53 +36,53 @@ class Brain:
 
         self.model = MODEL_NAME
 
+        # ==========================================
+        # MEMORY + CONTEXT
+        # ==========================================
+
+        self.memory = MemoryManager()
+
+        self.context = ContextManager(
+            memory_manager=self.memory,
+            max_messages=10,
+        )
+
+        # ==========================================
+        # TOOLS
+        # ==========================================
+
         self.tools = ToolRegistry()
 
-        self.register_tools()
+        # Register tools using the separate module
+        register_all_tools(self.tools)
+
+        # Start clipboard monitoring
+        start_clipboard_monitor()
+
+        # Start background reminder monitor
+        start_reminder_monitor()
 
         # Get all registered tools dynamically
         gemini_tools = self.tools.get_functions()
 
-        # Minimum gap between Gemini requests.
-        # This helps avoid Free Tier RPM errors.
+        # ==========================================
+        # RATE LIMIT
+        # ==========================================
+
         self.min_request_interval = 15
 
         self.last_request_time = 0
 
-        # Gemini automatic function calling
+        # ==========================================
+        # GEMINI CHAT
+        # ==========================================
+
         self.chat = self.client.chats.create(
             model=self.model,
             config={
                 "system_instruction": SYSTEM_PROMPT,
                 "tools": gemini_tools,
             },
-        )
-
-    # ==================================================
-    # REGISTER TOOLS
-    # ==================================================
-
-    def register_tools(self):
-
-        self.tools.register(
-            name="get_system_info",
-            description=(
-                "Get the current computer system information. "
-                "Use this tool whenever the user asks about "
-                "RAM usage, CPU usage, disk usage, operating "
-                "system, computer information, or system status."
-            ),
-            function=get_system_info,
-        )
-
-        self.tools.register(
-            name="get_battery",
-            description=(
-                "Get the current computer battery information. "
-                "Use this tool when the user asks about battery "
-                "percentage, charging status, or remaining battery."
-            ),
-            function=get_battery,
         )
 
     # ==================================================
@@ -108,10 +114,6 @@ class Brain:
 
         error_text = str(error)
 
-        # Example:
-        # retryDelay: 58s
-        # retry in 58.138098759s
-
         match = re.search(
             r"(?:retry in|retryDelay[^\d]*)(\d+(?:\.\d+)?)\s*s",
             error_text,
@@ -125,7 +127,6 @@ class Brain:
                 int(float(match.group(1))) + 1
             )
 
-        # Safe fallback
         return 60
 
     # ==================================================
@@ -146,19 +147,49 @@ class Brain:
                     "🧠 Gemini: processing..."
                 )
 
+                # ======================================
+                # BUILD CONTEXT
+                # ======================================
+
+                context = self.context.get_context()
+
+                prompt = f"""
+{context}
+
+CURRENT USER MESSAGE:
+{user_input}
+"""
+
+                # ======================================
+                # SEND TO GEMINI
+                # ======================================
+
                 response = self.chat.send_message(
-                    user_input
+                    prompt
                 )
 
                 self.last_request_time = time.time()
 
-                return response.text.strip()
+                response_text = response.text.strip()
+
+                # ======================================
+                # SAVE CONVERSATION
+                # ======================================
+
+                self.context.save_user_message(
+                    user_input
+                )
+
+                self.context.save_assistant_message(
+                    response_text
+                )
+
+                return response_text
 
             except Exception as e:
 
                 error_text = str(e)
 
-                # Gemini 429 / RESOURCE_EXHAUSTED
                 if (
                     "429" in error_text
                     or "RESOURCE_EXHAUSTED" in error_text
@@ -171,7 +202,7 @@ class Brain:
                     if attempt < max_retries - 1:
 
                         print(
-                            f"⚠️ Gemini quota/rate limit reached."
+                            "⚠️ Gemini quota/rate limit reached."
                         )
 
                         print(
@@ -191,7 +222,6 @@ class Brain:
                         f"{retry_seconds} seconds."
                     )
 
-                # Other Gemini error
                 return (
                     "Gemini error: "
                     f"{error_text}"
@@ -208,4 +238,7 @@ class Brain:
         if not user_input:
             return None
 
-        return self.ask_ai(user_input)
+        return self.ask_ai(
+            user_input
+        )
+

@@ -1,16 +1,10 @@
 class TextInput:
-    """
-    Handles keyboard/text input.
-    """
 
     def get_input(self):
         try:
-            user_input = input("👤 You: ").strip()
+            text = input("👤 You: ")
 
-            if not user_input:
-                return None
-
-            return user_input
+            return text.strip()
 
         except (KeyboardInterrupt, EOFError):
-            return "exit"
+            return "__EXIT__"
