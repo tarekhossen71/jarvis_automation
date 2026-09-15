@@ -1,8 +1,13 @@
 # tools/tool_register.py
 
-from tools.system.system_info import get_system_info
 from tools.system.battery import get_battery
 from tools.system.screenshot import take_screenshot
+from tools.system.system_info import (
+    get_system_info,
+    get_ram_info,
+    get_cpu_info,
+    get_disk_info,
+)
 from tools.system.volume import (
     get_volume,
     set_volume,
@@ -12,6 +17,7 @@ from tools.system.volume import (
     unmute_volume,
 )
 from tools.browser.browser import (
+    open_browser,
     open_url,
     open_website,
     google_search,
@@ -42,8 +48,8 @@ from tools.apps.app_manager import (
     open_application,
     is_application_running,
     get_running_applications,
-    close_application,
-    force_close_application,
+    # close_application,
+    # force_close_application,
 )
 
 from tools.clipboard.clipboard_manager import (
@@ -69,6 +75,7 @@ from tools.internet.speed_test import (
 
 from tools.reminders.reminder_manager import (
     create_reminder,
+    create_relative_reminder,
     list_reminders,
     find_reminder,
     cancel_reminder,
@@ -115,21 +122,41 @@ from tools.monitoring.system_monitor import (
     system_monitor_status,
     set_monitor_thresholds,
 )
+from tools.browser.youtube_research import youtube_research
+from tools.browser.google_research import google_research
+from tools.web.web_research import web_research
 
-
+from tools.applications.close_application import (
+    close_application,
+    force_close_application,
+)
 
 def register_all_tools(tools: object):
     """Register all system, browser, file, and application tools."""
 
     tools.register(
-        name="get_system_info",
-        description=(
-            "Get the current computer system information. "
-            "Use this tool whenever the user asks about "
-            "RAM usage, CPU usage, disk usage, operating "
-            "system, computer information, or system status."
-        ),
-        function=get_system_info,
+        "get_system_info",
+        "Get complete system information including CPU, RAM, disk, operating system, and machine information.",
+        get_system_info,
+    )
+
+    tools.register(
+        "get_ram_info",
+        "Get current RAM usage, total RAM, used RAM, and available RAM.",
+        get_ram_info,
+    )
+
+    tools.register(
+        "get_cpu_info",
+        "Get current CPU usage and processor information.",
+        get_cpu_info,
+    )
+
+    tools.register(
+        "get_disk_info",
+        "Get disk usage information for a specific drive. "
+        "The drive parameter can be C:\\, D:\\, E:\\ etc.",
+        get_disk_info,
     )
 
     tools.register(
@@ -205,10 +232,31 @@ def register_all_tools(tools: object):
         function=unmute_volume,
     )
 
+    
+    # =====================================================
+    # BROWSER TOOLS
+    # =====================================================
+
+    tools.register(
+        name="open_browser",
+        description=(
+            "Open a specific web browser. "
+            "Supported browsers are Chrome, Firefox, Edge, and Brave. "
+            "If the requested browser is already running, do not launch "
+            "another browser instance."
+        ),
+        function=open_browser,
+    )
+
     tools.register(
         name="open_url",
         description=(
             "Open a specific URL in a web browser. "
+            "Optional browser parameter can be used: "
+            "chrome, firefox, edge, or brave. "
+            "If the user explicitly names a browser, "
+            "you MUST pass that browser. "
+            "If no browser is specified, use the default browser."
         ),
         function=open_url,
     )
@@ -218,6 +266,11 @@ def register_all_tools(tools: object):
         description=(
             "Open a known website such as Google, YouTube, Facebook, "
             "GitHub, Gmail, ChatGPT, or LinkedIn. "
+            "Optional browser parameter: chrome, firefox, edge, or brave. "
+            "If the user explicitly names a browser, "
+            "you MUST use that browser. "
+            "Do not use the system default browser when a specific "
+            "browser was requested."
         ),
         function=open_website,
     )
@@ -226,6 +279,9 @@ def register_all_tools(tools: object):
         name="google_search",
         description=(
             "Search Google for the requested query. "
+            "Optional browser parameter: chrome, firefox, edge, or brave. "
+            "If the user specifies a browser, pass that browser. "
+            "Otherwise use the default browser."
         ),
         function=google_search,
     )
@@ -234,6 +290,9 @@ def register_all_tools(tools: object):
         name="youtube_search",
         description=(
             "Search YouTube for the requested query. "
+            "Optional browser parameter: chrome, firefox, edge, or brave. "
+            "If the user specifies a browser, you MUST pass that browser. "
+            "Otherwise use the default browser."
         ),
         function=youtube_search,
     )
@@ -241,11 +300,25 @@ def register_all_tools(tools: object):
     tools.register(
         name="play_youtube",
         description=(
-            "Search YouTube for a requested topic and "
-            "open the first relevant video in Chrome."
+            "Search YouTube for a requested topic and play the first "
+            "relevant video. Optional browser parameter can be "
+            "chrome, firefox, edge, or brave. If browser is not "
+            "specified, use the default browser."
         ),
         function=play_youtube,
     )
+
+    tools.register(
+        "youtube_research",
+        "Search YouTube and return actual video results including title, channel, publish time, views, duration, and URL. Use this when the user wants information about YouTube search results, latest videos, episodes, or research.",
+        youtube_research,
+    )
+
+    # tools.register(
+    #     "google_research",
+    #     "Search Google and return actual search results including title, URL, domain, and snippet. Use this when the user wants information, research, latest information, news, facts, or wants JARVIS to inspect Google search results.",
+    #     google_research,
+    # )
 
     tools.register(
         name="list_folder",
@@ -600,6 +673,11 @@ def register_all_tools(tools: object):
         ),
         function=create_reminder,
     )
+    tools.register(
+        "create_relative_reminder",
+        "Create a persistent reminder after a relative amount of time such as seconds, minutes, hours, or days.",
+        create_relative_reminder,
+    )
 
     tools.register(
         name="list_reminders",
@@ -868,4 +946,10 @@ def register_all_tools(tools: object):
             "CPU, RAM, disk, battery, or monitoring interval thresholds."
         ),
         function=set_monitor_thresholds,
+    )
+
+    tools.register(
+        "web_research",
+        "Search the live web for current information, news, research, facts, comparisons, and other real-time topics.",
+        web_research,
     )

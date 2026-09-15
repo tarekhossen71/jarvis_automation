@@ -29,6 +29,11 @@ MODEL_NAME = os.getenv(
     "gemini-3.6-flash"
 )
 
+TAVILY_API_KEY = os.getenv(
+    "TAVILY_API_KEY",
+    ""
+)
+
 
 # =========================================================
 # JARVIS

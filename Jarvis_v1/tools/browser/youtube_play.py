@@ -1,10 +1,11 @@
+
 import re
 import requests
 
 from tools.browser.browser import open_url
 
 
-def play_youtube(query: str):
+def play_youtube(query: str, browser: str = None):
     try:
         query = (query or "").strip()
 
@@ -63,19 +64,33 @@ def play_youtube(query: str):
             + video_id
         )
 
-        result = open_url(video_url)
+        # Explicit browser দিলে সেটাই ব্যবহার হবে।
+        # Browser না দিলে browser.py-এর default browser ব্যবহার হবে।
+        if browser:
+            result = open_url(
+                video_url,
+                browser=browser,
+            )
+        else:
+            result = open_url(video_url)
 
         if not result.get("success"):
             return result
+
+        used_browser = result.get(
+            "browser",
+            browser or "default browser",
+        )
 
         return {
             "success": True,
             "query": query,
             "video_id": video_id,
             "url": video_url,
+            "browser": used_browser,
             "message": (
                 f"Opened the first YouTube video "
-                f"for '{query}'."
+                f"for '{query}' in {used_browser}."
             ),
         }
 

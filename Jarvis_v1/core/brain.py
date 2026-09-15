@@ -63,7 +63,8 @@ class Brain:
         start_reminder_monitor()
 
         # Get all registered tools dynamically
-        gemini_tools = self.tools.get_functions()
+        # gemini_tools = self.tools.get_functions()
+        gemini_tools = []
 
         # ==========================================
         # RATE LIMIT
@@ -170,7 +171,33 @@ CURRENT USER MESSAGE:
 
                 self.last_request_time = time.time()
 
-                response_text = response.text.strip()
+                response_text = (
+                    response.text.strip()
+                    if response.text
+                    else ""
+                )
+
+                # ======================================
+                # EMPTY RESPONSE PROTECTION
+                # ======================================
+
+                if not response_text:
+
+                    if attempt < max_retries - 1:
+
+                        print(
+                            "⚠️ Gemini returned an empty response. "
+                            "Retrying..."
+                        )
+
+                        time.sleep(2)
+
+                        continue
+
+                    return (
+                        "I received an empty response from Gemini. "
+                        "Please try again."
+                    )
 
                 # ======================================
                 # SAVE CONVERSATION
@@ -229,16 +256,489 @@ CURRENT USER MESSAGE:
 
         return "Gemini is temporarily unavailable."
 
-    # ==================================================
+        # ==================================================
     # PROCESS
     # ==================================================
 
-    def process(self, user_input):
+    def process_tool_results(
+        self,
+        user_input,
+        tool_results,
+    ):
+        """
+        Convert real tool results into a natural
+        JARVIS response using the existing Gemini chat.
 
+        Includes:
+        - Gemini retry for temporary 503 errors
+        - Safe fallback if Gemini remains unavailable
+        """
+
+        if not tool_results:
+            return "I could not get any tool results."
+
+        prompt = f"""
+                The user asked:
+
+                {user_input}
+
+                I executed the required JARVIS tools.
+
+                REAL TOOL RESULTS:
+
+                {tool_results}
+
+                Now answer the user's original question.
+
+                Rules:
+
+                1. Use ONLY the information in the tool results.
+                2. Never invent values.
+                3. Never claim a tool failed if it succeeded.
+                4. Clearly provide the actual result to the user.
+                5. If the result contains RAM information, mention the
+                current RAM usage and useful RAM values.
+                6. If the result contains CPU information, mention CPU usage.
+                7. If the result contains disk information, mention disk usage.
+                8. If the result contains battery information, mention battery.
+                9. For application/file/browser actions, clearly tell the
+                user what was completed.
+                10. Keep the answer concise and natural.
+                11. Reply in English or Banglish only.
+                12. Do not mention internal tool names unless necessary.
+                13. Do not say "I executed a tool".
+                """
+
+        # ==================================================
+        # TRY GEMINI
+        # ==================================================
+
+        max_attempts = 2
+
+        for attempt in range(max_attempts):
+
+            try:
+                self.wait_for_rate_limit()
+
+                response = self.chat.send_message(
+                    prompt
+                )
+
+                response_text = (
+                    response.text.strip()
+                    if response.text
+                    else ""
+                )
+
+                if response_text:
+
+                    self.last_request_time = time.time()
+
+                    self.context.save_user_message(
+                        user_input
+                    )
+
+                    self.context.save_assistant_message(
+                        response_text
+                    )
+
+                    return response_text
+
+                print("⚠️ Gemini returned an empty final response.")
+
+            except Exception as e:
+
+                error_text = str(e).lower()
+
+                # Temporary Gemini availability problem
+                is_temporary_error = (
+                    "503" in error_text
+                    or "unavailable" in error_text
+                    or "high demand" in error_text
+                    or "resource_exhausted" in error_text
+                    or "429" in error_text
+                )
+
+                if (
+                    is_temporary_error
+                    and attempt < max_attempts - 1
+                ):
+
+                    time.sleep(3)
+
+                    continue
+
+                # ==================================================
+                # FALLBACK
+                # ==================================================
+
+                fallback_response = (
+                    self._build_tool_result_fallback(
+                        user_input=user_input,
+                        tool_results=tool_results,
+                    )
+                )
+
+                self.context.save_user_message(
+                    user_input
+                )
+
+                self.context.save_assistant_message(
+                    fallback_response
+                )
+
+                return fallback_response
+
+        # Safety fallback
+        fallback_response = (
+            self._build_tool_result_fallback(
+                user_input=user_input,
+                tool_results=tool_results,
+            )
+        )
+
+        self.context.save_user_message(
+            user_input
+        )
+
+        self.context.save_assistant_message(
+            fallback_response
+        )
+
+        return fallback_response
+
+
+    # ==================================================
+    # TOOL RESULT FALLBACK
+    # ==================================================
+
+    def _build_tool_result_fallback(
+        self,
+        user_input,
+        tool_results,
+    ):
+        """
+        Build a natural user-friendly response directly
+        from real tool results when Gemini is unavailable.
+        """
+
+        messages = []
+
+        for item in tool_results:
+
+            if not isinstance(item, dict):
+                continue
+
+            success = item.get("success", False)
+            action = item.get("action", "")
+            result = item.get("result")
+            error = item.get("error")
+
+            # ==================================================
+            # SUCCESS
+            # ==================================================
+
+            if success:
+
+                # --------------------------------------------------
+                # APPLICATION
+                # --------------------------------------------------
+
+                if action == "open_application":
+
+                    if isinstance(result, dict):
+
+                        application = result.get(
+                            "application",
+                            result.get(
+                                "app_name",
+                                "application"
+                            )
+                        )
+
+                        messages.append(
+                            f"Done. I opened {application}."
+                        )
+
+                    else:
+
+                        messages.append(
+                            "Done. I opened the application."
+                        )
+
+                # --------------------------------------------------
+                # BROWSER / URL
+                # --------------------------------------------------
+
+                elif action in (
+                    "open_url",
+                    "open_website",
+                    "google_search",
+                    "youtube_search",
+                    "play_youtube",
+                ):
+
+                    if isinstance(result, dict):
+
+                        browser = result.get(
+                            "browser"
+                        )
+
+                        url = result.get(
+                            "url"
+                        )
+
+                        if action in (
+                            "google_search",
+                            "youtube_search",
+                        ):
+
+                            if browser:
+
+                                messages.append(
+                                    f"Done. I searched using {browser}."
+                                )
+
+                            else:
+
+                                messages.append(
+                                    "Done. I completed the search."
+                                )
+
+                        elif url:
+
+                            messages.append(
+                                f"Done. I opened the requested page."
+                            )
+
+                        else:
+
+                            messages.append(
+                                "Done. I completed the browser action."
+                            )
+
+                    else:
+
+                        messages.append(
+                            "Done. I completed the browser action."
+                        )
+
+                # --------------------------------------------------
+                # RAM
+                # --------------------------------------------------
+
+                elif isinstance(result, dict) and (
+                    "ram_usage_percent" in result
+                ):
+
+                    usage = result.get(
+                        "ram_usage_percent"
+                    )
+
+                    total = result.get(
+                        "total_gb"
+                    )
+
+                    available = result.get(
+                        "available_gb"
+                    )
+
+                    messages.append(
+                        f"RAM usage is {usage}%. "
+                        f"Total RAM: {total} GB. "
+                        f"Available RAM: {available} GB."
+                    )
+
+                # --------------------------------------------------
+                # CPU
+                # --------------------------------------------------
+
+                elif isinstance(result, dict) and (
+                    "cpu_usage_percent" in result
+                ):
+
+                    usage = result.get(
+                        "cpu_usage_percent"
+                    )
+
+                    messages.append(
+                        f"Current CPU usage is {usage}%."
+                    )
+
+                # --------------------------------------------------
+                # BATTERY
+                # --------------------------------------------------
+
+                elif isinstance(result, dict) and (
+                    "percent" in result
+                    and (
+                        "plugged" in result
+                        or "power_plugged" in result
+                    )
+                ):
+
+                    percent = result.get(
+                        "percent"
+                    )
+
+                    plugged = result.get(
+                        "plugged",
+                        result.get(
+                            "power_plugged"
+                        )
+                    )
+
+                    if plugged:
+
+                        messages.append(
+                            f"Battery is at {percent}% "
+                            f"and the charger is connected."
+                        )
+
+                    else:
+
+                        messages.append(
+                            f"Battery is at {percent}% "
+                            f"and the charger is not connected."
+                        )
+
+                # --------------------------------------------------
+                # DISK
+                # --------------------------------------------------
+
+                elif isinstance(result, dict) and (
+                    "free_gb" in result
+                    and "total_gb" in result
+                ):
+
+                    drive = result.get(
+                        "drive",
+                        ""
+                    )
+
+                    free_gb = result.get(
+                        "free_gb"
+                    )
+
+                    total_gb = result.get(
+                        "total_gb"
+                    )
+
+                    used_gb = result.get(
+                        "used_gb"
+                    )
+
+                    usage = result.get(
+                        "usage_percent"
+                    )
+
+                    messages.append(
+                        f"You have {free_gb} GB of free "
+                        f"space on the {drive} drive. "
+                        f"It is using {used_gb} GB out of "
+                        f"{total_gb} GB ({usage}% used)."
+                    )
+
+                # --------------------------------------------------
+                # WEB RESEARCH
+                # --------------------------------------------------
+
+                elif isinstance(result, dict) and (
+                    "results" in result
+                ):
+
+                    research_results = result.get(
+                        "results"
+                    )
+
+                    if isinstance(
+                        research_results,
+                        list
+                    ):
+
+                        if not research_results:
+
+                            messages.append(
+                                "I could not find any relevant results."
+                            )
+
+                        else:
+
+                            messages.append(
+                                f"I found {len(research_results)} relevant result(s)."
+                            )
+
+                            for index, research_item in enumerate(
+                                research_results[:5],
+                                start=1
+                            ):
+
+                                if not isinstance(
+                                    research_item,
+                                    dict
+                                ):
+                                    continue
+
+                                title = research_item.get(
+                                    "title"
+                                )
+
+                                url = research_item.get(
+                                    "url"
+                                )
+
+                                if title and url:
+
+                                    messages.append(
+                                        f"{index}. {title} - {url}"
+                                    )
+
+                                elif title:
+
+                                    messages.append(
+                                        f"{index}. {title}"
+                                    )
+
+                # --------------------------------------------------
+                # GENERIC SUCCESS
+                # --------------------------------------------------
+
+                else:
+
+                    messages.append(
+                        "Done. I completed the requested action."
+                    )
+
+            # ==================================================
+            # FAILURE
+            # ==================================================
+
+            elif error:
+
+                messages.append(
+                    f"I could not complete that action: {error}"
+                )
+
+        # ==================================================
+        # FINAL RESPONSE
+        # ==================================================
+
+        if messages:
+
+            return "\n".join(messages)
+
+        return (
+            "The requested action was completed, "
+            "but I could not generate a detailed response."
+        )
+
+
+
+    def process(self, user_input):
+    
         if not user_input:
             return None
 
         return self.ask_ai(
             user_input
         )
-

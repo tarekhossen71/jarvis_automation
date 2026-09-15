@@ -135,11 +135,19 @@ class VoiceInput:
     # LISTEN ONCE
     # ---------------------------------------------------------
 
+    
+    # ---------------------------------------------------------
+    # LISTEN ONCE
+    # ---------------------------------------------------------
+
     def listen_once(self):
         if not self.microphone:
+            print("❌ Microphone is not available.")
             return ""
 
         try:
+            print("🎤 Listening...")
+
             with self.microphone as source:
 
                 audio = self.recognizer.listen(
@@ -148,53 +156,57 @@ class VoiceInput:
                     phrase_time_limit=self.phrase_time_limit,
                 )
 
+            print("🧠 Processing voice...")
+
             text = self.recognizer.recognize_google(
                 audio,
                 language=self.language,
             )
 
-            return text.strip()
+            text = text.strip()
+
+            if text:
+                print(f"👤 You said: {text}")
+
+            return text
 
         except sr.WaitTimeoutError:
+            print("⏱️ No speech detected.")
+
             return ""
 
         except sr.UnknownValueError:
+            print("❓ Could not understand the speech.")
+
             return ""
 
         except sr.RequestError as e:
-            print(f"Speech recognition service error: {e}")
+            print(
+                f"❌ Speech recognition service error: {e}"
+            )
+
             return ""
 
         except OSError as e:
-            print(f"Microphone error: {e}")
+            print(
+                f"❌ Microphone error: {e}"
+            )
+
             return ""
 
         except Exception as e:
-            print(f"Voice input error: {e}")
+            print(
+                f"❌ Voice input error: {e}"
+            )
+
             return ""
+    
 
     # ---------------------------------------------------------
     # WAIT FOR WAKE WORD
     # ---------------------------------------------------------
 
     def wait_for_wake_word(self):
-        """
-        Standby mode.
-
-        Keeps listening until Jarvis wake word is detected.
-
-        Returns:
-            None
-            OR command spoken together with wake word.
-
-        Example:
-            "Hey Jarvis open Chrome"
-
-        returns:
-
-            "open Chrome"
-        """
-
         self.active = False
 
         while self.running:
@@ -204,6 +216,23 @@ class VoiceInput:
             if not text:
                 continue
 
+            # Allow mode-switch commands directly from standby.
+            # Example:
+            # "switch to text mode"
+            # "switch to voice mode"
+            normalized = self.normalize(text)
+
+            if normalized in (
+                "switch to text mode",
+                "text mode",
+                "enable text mode",
+                "switch to voice mode",
+                "voice mode",
+                "enable voice mode",
+            ):
+                return text
+
+            # Normal commands require wake word.
             if not self.contains_wake_word(text):
                 continue
 

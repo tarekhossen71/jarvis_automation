@@ -267,6 +267,127 @@ def list_reminders(
 
 
 # =========================================================
+# CREATE RELATIVE REMINDER
+# =========================================================
+
+def create_relative_reminder(
+    title: str,
+    amount,
+    unit: str,
+    description: str = ""
+):
+    """
+    Create a reminder using relative time.
+
+    Examples:
+
+    30 seconds
+    1 minute
+    0.5 minutes
+    2 hours
+    1 day
+    """
+
+    try:
+        title = (title or "").strip()
+        unit = (unit or "").strip().lower()
+
+        if not title:
+            return {
+                "success": False,
+                "error": "Reminder title cannot be empty.",
+            }
+
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "error": "Reminder time amount must be a number.",
+            }
+
+        if amount <= 0:
+            return {
+                "success": False,
+                "error": "Reminder time must be greater than zero.",
+            }
+
+        # -------------------------------------------------
+        # NORMALIZE UNIT
+        # -------------------------------------------------
+
+        if unit in (
+            "second",
+            "seconds",
+            "sec",
+            "secs",
+        ):
+            delta = timedelta(
+                seconds=amount
+            )
+
+        elif unit in (
+            "minute",
+            "minutes",
+            "min",
+            "mins",
+        ):
+            delta = timedelta(
+                minutes=amount
+            )
+
+        elif unit in (
+            "hour",
+            "hours",
+            "hr",
+            "hrs",
+        ):
+            delta = timedelta(
+                hours=amount
+            )
+
+        elif unit in (
+            "day",
+            "days",
+        ):
+            delta = timedelta(
+                days=amount
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": (
+                    "Unsupported time unit. "
+                    "Use seconds, minutes, hours, or days."
+                ),
+            }
+
+        reminder_time = (
+            datetime.now() + delta
+        )
+
+        # -------------------------------------------------
+        # USE EXISTING REMINDER CREATION
+        # -------------------------------------------------
+
+        return create_reminder(
+            title=title,
+            date_time=reminder_time.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            description=description,
+        )
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    
+# =========================================================
 # FIND REMINDER
 # =========================================================
 

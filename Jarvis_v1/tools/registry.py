@@ -30,18 +30,17 @@ class ToolRegistry:
             for tool in self.tools.values()
         ]
 
-    def execute(self, name, **kwargs):
+    def execute(self, tool_name, **kwargs):
 
-        tool = self.get(name)
+        tool = self.get(tool_name)
 
         if not tool:
             return {
                 "success": False,
-                "error": f"Tool '{name}' not found.",
+                "error": f"Tool '{tool_name}' does not exist.",
             }
 
         try:
-
             result = tool["function"](**kwargs)
 
             return {
@@ -50,7 +49,6 @@ class ToolRegistry:
             }
 
         except Exception as e:
-
             return {
                 "success": False,
                 "error": str(e),
