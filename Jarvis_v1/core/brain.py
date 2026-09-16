@@ -10,6 +10,7 @@ from config import (
     SYSTEM_PROMPT,
 )
 
+
 from tools.registry import ToolRegistry
 from tools.tool_register import register_all_tools
 from tools.clipboard.clipboard_manager import start_clipboard_monitor
@@ -19,7 +20,7 @@ from tools.reminders.reminder_manager import (
 
 from core.memory import MemoryManager
 from core.context import ContextManager
-
+from core.offline_brain import OfflineBrain
 
 class Brain:
 
@@ -47,6 +48,11 @@ class Brain:
             max_messages=10,
         )
 
+        # Offline fallback brain using Ollama
+        self.offline_brain = OfflineBrain()
+
+        
+
         # ==========================================
         # TOOLS
         # ==========================================
@@ -70,7 +76,7 @@ class Brain:
         # RATE LIMIT
         # ==========================================
 
-        self.min_request_interval = 15
+        self.min_request_interval = 0
 
         self.last_request_time = 0
 
@@ -92,20 +98,21 @@ class Brain:
 
     def wait_for_rate_limit(self):
 
-        elapsed = time.time() - self.last_request_time
+        # elapsed = time.time() - self.last_request_time
 
-        if elapsed < self.min_request_interval:
+        # if elapsed < self.min_request_interval:
 
-            wait_time = (
-                self.min_request_interval - elapsed
-            )
+        #     wait_time = (
+        #         self.min_request_interval - elapsed
+        #     )
 
-            print(
-                f"⏳ Gemini rate limit protection: "
-                f"waiting {wait_time:.1f}s..."
-            )
+        #     print(
+        #         f"⏳ Gemini rate limit protection: "
+        #         f"waiting {wait_time:.1f}s..."
+        #     )
 
-            time.sleep(wait_time)
+        #     time.sleep(wait_time)
+        return
 
     # ==================================================
     # EXTRACT RETRY TIME FROM GEMINI ERROR
@@ -155,11 +162,11 @@ class Brain:
                 context = self.context.get_context()
 
                 prompt = f"""
-{context}
+                    {context}
 
-CURRENT USER MESSAGE:
-{user_input}
-"""
+                    CURRENT USER MESSAGE:
+                    {user_input}
+                    """
 
                 # ======================================
                 # SEND TO GEMINI
@@ -243,15 +250,66 @@ CURRENT USER MESSAGE:
 
                         continue
 
-                    return (
-                        "Gemini is temporarily rate-limited. "
-                        f"Please try again after "
-                        f"{retry_seconds} seconds."
+                    print(
+                        "🧠 Gemini is rate-limited."
                     )
 
+                    print(
+                        "🧠 Switching to OfflineBrain..."
+                    )
+
+                    offline_response = (
+                        self.offline_brain.process(
+                            user_input=user_input,
+                            context=self.context.get_context(),
+                        )
+                    )
+
+                    if offline_response:
+                        self.context.save_user_message(
+                            user_input
+                        )
+
+                        self.context.save_assistant_message(
+                            offline_response
+                        )
+
+                        return offline_response
+
+                    return (
+                        "Gemini is temporarily rate-limited "
+                        "and the offline brain is unavailable."
+                    )
+
+                print(
+                    f"⚠️ Gemini error: {error_text}"
+                )
+
+                print(
+                    "🧠 Switching to OfflineBrain..."
+                )
+
+                offline_response = (
+                    self.offline_brain.process(
+                        user_input=user_input,
+                        context=self.context.get_context(),
+                    )
+                )
+
+                if offline_response:
+                    self.context.save_user_message(
+                        user_input
+                    )
+
+                    self.context.save_assistant_message(
+                        offline_response
+                    )
+
+                    return offline_response
+
                 return (
-                    "Gemini error: "
-                    f"{error_text}"
+                    "Gemini is unavailable and "
+                    "the offline brain could not respond."
                 )
 
         return "Gemini is temporarily unavailable."

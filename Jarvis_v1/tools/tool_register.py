@@ -126,13 +126,71 @@ from tools.browser.youtube_research import youtube_research
 from tools.browser.google_research import google_research
 from tools.web.web_research import web_research
 
+from tools.security.security_history import (
+    get_recent_security_events,
+    get_latest_security_event,
+    get_security_events,
+    get_security_summary,
+)
+
 from tools.applications.close_application import (
     close_application,
     force_close_application,
 )
 
+from tools.automation.automation_tools import (
+    list_automations,
+    enable_automation,
+    disable_automation,
+    automation_status,
+    create_automation,
+    stop_all_automations,
+    delete_automation,
+)
+
+
+
+
 def register_all_tools(tools: object):
     """Register all system, browser, file, and application tools."""
+
+    def get_available_features():
+        """
+        Return all currently registered JARVIS tools/features.
+        """
+
+        try:
+
+            registered_tools = tools.all()
+
+            feature_names = [
+                tool["name"]
+                for tool in registered_tools
+            ]
+
+            return {
+                "success": True,
+                "count": len(feature_names),
+                "features": feature_names,
+            }
+
+        except Exception as e:
+
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    tools.register(
+        name="get_available_features",
+        description=(
+            "Show all currently available JARVIS features and tools. "
+            "Use this when the user asks what features JARVIS has, "
+            "what JARVIS can do, show available features, "
+            "or list all available capabilities."
+        ),
+        function=get_available_features,
+    )
 
     tools.register(
         "get_system_info",
@@ -908,7 +966,7 @@ def register_all_tools(tools: object):
     )
 
     tools.register(
-    name="start_system_monitor",
+        name="start_system_monitor",
         description=(
             "Start background monitoring of CPU, RAM, disk, "
             "battery, and internet connection. "
@@ -949,7 +1007,121 @@ def register_all_tools(tools: object):
     )
 
     tools.register(
-        "web_research",
-        "Search the live web for current information, news, research, facts, comparisons, and other real-time topics.",
-        web_research,
+        name="web_research",
+        description=(
+            "Search the live web for current information, news, research, facts, comparisons, and other real-time topics."
+        ),
+        function=web_research,
+    )
+
+    tools.register(
+        name="get_recent_security_events",
+        description=(
+            "Get recent security events detected by JARVIS security "
+            "watchers, including process, network, and startup events. "
+            "Use this LOCAL tool when the user asks to see, show, "
+            "check, review, or list recent security events or security "
+            "history. Do NOT use web research for these requests."
+        ),
+        function=get_recent_security_events,
+    )
+    tools.register(
+        name="get_latest_security_event",
+        description=(
+            "Get the latest security event detected by JARVIS. "
+            "Use this LOCAL tool when the user asks for the latest, "
+            "last, newest, or most recent security event."
+        ),
+        function=get_latest_security_event,
+    )
+    tools.register(
+        name="get_security_events",
+        description=(
+            "Filter and retrieve security events from the local JARVIS "
+            "security history. Use this tool when the user asks for "
+            "security events filtered by risk level, source, or event type. "
+            "Supported risk levels: LOW, MEDIUM, HIGH, CRITICAL. "
+            "Supported sources include security_watcher, network_watcher, "
+            "and startup_watcher."
+        ),
+        function=get_security_events,
+    )
+    tools.register(
+        name="get_security_summary",
+        description=(
+            "Get a summary of local JARVIS security events, including "
+            "total events, counts by risk level, and counts by watcher source. "
+            "Use this LOCAL tool when the user asks for a security summary, "
+            "security overview, security statistics, or security status."
+        ),
+        function=get_security_summary,
+    )
+    tools.register(
+        name="list_automations",
+        description=(
+            "List all JARVIS automations and show "
+            "whether each is enabled or disabled."
+        ),
+        function=list_automations,
+    )
+
+    tools.register(
+        name="enable_automation",
+        description=(
+            "Enable a JARVIS automation by its exact name."
+        ),
+        function=enable_automation,
+    )
+
+    tools.register(
+        name="disable_automation",
+        description=(
+            "Disable a JARVIS automation by its exact name."
+        ),
+        function=disable_automation,
+    )
+
+    tools.register(
+        name="automation_status",
+        description=(
+            "Check the status of a specific "
+            "JARVIS automation."
+        ),
+        function=automation_status,
+    )
+
+    tools.register(
+        name="create_automation",
+        description=(
+            "Create a new JARVIS automation. "
+            "Requires a name, event, and action. "
+            "An optional condition can be supplied as a structured object "
+            "with metric, operator, and numeric value. "
+            "Supported metrics are cpu, ram, disk, and battery. "
+            "Supported operators are >, >=, <, <=, ==, !=. "
+            "Example condition: "
+            "{'metric': 'cpu', 'operator': '>', 'value': 80}."
+        ),
+        function=create_automation,
+    )
+    tools.register(
+        name="stop_all_automations",
+        description=(
+            "Disable ALL currently configured JARVIS automations. "
+            "Use this LOCAL tool when the user says stop all "
+            "automations, disable all automations, or turn off "
+            "all automations."
+        ),
+        function=stop_all_automations,
+    )
+    tools.register(
+        name="delete_automation",
+        description=(
+            "Permanently delete an existing JARVIS automation "
+            "from the automation list. "
+            "Use this when the user says delete, remove, "
+            "or permanently remove an automation. "
+            "Requires the exact automation name."
+        ),
+        function=delete_automation,
     )

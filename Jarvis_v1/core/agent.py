@@ -1,3 +1,4 @@
+import re
 from core.planner import Planner
 from core.confirmation_manager import ConfirmationManager
 
@@ -52,10 +53,7 @@ class Agent:
 
         return text in conversation_phrases
 
-    # =========================================================
-    # DIRECT TOOLS
-    # =========================================================
-
+ 
     # =========================================================
     # DIRECT / LOCAL TOOLS
     # =========================================================
@@ -65,6 +63,30 @@ class Agent:
         import re
 
         text = user_input.lower().strip()
+
+        # -----------------------------------------------------
+        # AUTOMATION COMMANDS
+        #
+        # Automation requests must go through the Planner.
+        # Otherwise words like "CPU usage" inside an
+        # automation request can trigger get_cpu_info.
+        # -----------------------------------------------------
+
+        automation_keywords = (
+            "create an automation",
+            "create automation",
+            "make an automation",
+            "make automation",
+            "add an automation",
+            "add automation",
+            "new automation",
+        )
+
+        if any(
+            keyword in text
+            for keyword in automation_keywords
+        ):
+            return None
 
         # -----------------------------------------------------
         # RAM
@@ -135,6 +157,31 @@ class Agent:
         # -----------------------------------------------------
         # DISK
         # -----------------------------------------------------
+        #
+        # Supports:
+        #
+        # disk status
+        # disk usage
+        # disk space
+        # my disk status
+        #
+        # Specific drives:
+        #
+        # check C drive
+        # check D drive
+        # check E drive
+        # check F drive
+        #
+        # Also:
+        #
+        # check E
+        # check E disk
+        # my disk status D:
+        # my disk status D
+        # free space in E drive
+        # free space on F drive
+        #
+        # -----------------------------------------------------
 
         disk_keywords = (
             "disk usage",
@@ -144,15 +191,94 @@ class Agent:
             "hard disk usage",
             "storage usage",
             "storage status",
+            "my disk status",
+            "check drive",
+            "check disk",
+            "free space in",
+            "free space on",
+            "how much free space in",
+            "how much free space on",
         )
+
+        # -----------------------------------------------------
+        # Detect explicit drive command
+        #
+        # Examples:
+        #
+        # check E drive
+        # check E:
+        # check E
+        # check E disk
+        # disk status E
+        # disk status E:
+        # my disk status D:
+        #
+        # -----------------------------------------------------
+
+        drive_match = re.search(
+            r"\b([a-z])\s*:?\s*(?:drive|disk)?\b",
+            text,
+        )
+
+        # -----------------------------------------------------
+        # Explicit "check X drive/disk" pattern
+        #
+        # This specifically handles:
+        #
+        # check E drive
+        # check F drive
+        #
+        # -----------------------------------------------------
+
+        explicit_check_drive = re.search(
+            r"\bcheck\s+([a-z])\s*:?\s*(?:drive|disk)?\b",
+            text,
+        )
+
+        if explicit_check_drive:
+
+            drive_letter = (
+                explicit_check_drive.group(1)
+                .upper()
+            )
+
+            drive = f"{drive_letter}:\\"
+
+            return (
+                "get_disk_info",
+                {
+                    "drive": drive,
+                },
+            )
+
+        # -----------------------------------------------------
+        # General disk commands
+        # -----------------------------------------------------
 
         if any(
             keyword in text
             for keyword in disk_keywords
         ):
+
+            if drive_match:
+
+                drive_letter = (
+                    drive_match.group(1)
+                    .upper()
+                )
+
+                drive = f"{drive_letter}:\\"
+
+            else:
+
+                # Default drive
+                drive = "C:\\"
+
             return (
                 "get_disk_info",
-                {},
+                {
+                    "drive": drive,
+                },
             )
 
         # -----------------------------------------------------
@@ -283,15 +409,6 @@ class Agent:
         # -----------------------------------------------------
         # OPEN APPLICATION
         # -----------------------------------------------------
-        #
-        # Examples:
-        #
-        # open chrome
-        # open whatsapp
-        # open notepad
-        # open calculator
-        #
-        # -----------------------------------------------------
 
         open_match = re.match(
             r"^(?:open|launch|start)\s+(.+?)\s*$",
@@ -321,17 +438,6 @@ class Agent:
 
         # -----------------------------------------------------
         # CLOSE APPLICATION
-        # -----------------------------------------------------
-        #
-        # Examples:
-        #
-        # close chrome
-        # close whatsapp
-        # close explorer
-        #
-        # Confirmation will still be handled by
-        # the existing confirmation system.
-        #
         # -----------------------------------------------------
 
         close_match = re.match(
@@ -961,8 +1067,8 @@ class Agent:
                 "",
             )
 
-            free = data.get(
-                "free_gb"
+            usage = data.get(
+                "usage_percent"
             )
 
             total = data.get(
@@ -973,19 +1079,48 @@ class Agent:
                 "used_gb"
             )
 
-            percent = data.get(
-                "usage_percent"
+            free = data.get(
+                "free_gb"
             )
 
-            if free is not None:
+            error = data.get(
+                "error"
+            )
 
-                return (
-                    f"You have {free} GB of free "
-                    f"space on the {drive} drive. "
-                    f"It is using {used} GB out of "
-                    f"{total} GB ({percent}% used)."
+            if error:
+                return str(error)
+
+            lines = []
+
+            if drive:
+                lines.append(
+                    f"Drive: {drive}"
                 )
 
+            if usage is not None:
+                lines.append(
+                    f"Disk Usage: {usage}%"
+                )
+
+            if total is not None:
+                lines.append(
+                    f"Total: {total} GB"
+                )
+
+            if used is not None:
+                lines.append(
+                    f"Used: {used} GB"
+                )
+
+            if free is not None:
+                lines.append(
+                    f"Free: {free} GB"
+                )
+
+            if lines:
+                return "\n".join(lines)
+
+            return "No disk information was available."
         # -----------------------------------------------------
         # VOLUME
         # -----------------------------------------------------
@@ -1579,7 +1714,47 @@ class Agent:
             # -------------------------------------------------
             # EXECUTE TOOL
             # -------------------------------------------------
+            # -------------------------------------------------
+            # DANGEROUS POWER ACTIONS
+            # -------------------------------------------------
+            #
+            # These actions MUST NEVER execute directly.
+            # Confirmation must happen before the real tool call.
+            #
+            # -------------------------------------------------
 
+            if action in (
+                "shutdown_pc",
+                "restart_pc",
+            ):
+
+                confirmation_message = (
+                    "Are you sure you want to "
+                    f"{'shut down' if action == 'shutdown_pc' else 'restart'} "
+                    "the PC? Please confirm with yes or no."
+                )
+
+                # IMPORTANT:
+                # Never trust Gemini/planner's "confirmed" value.
+                # First execution is ALWAYS unconfirmed.
+                pending_arguments = (
+                    resolved_arguments.copy()
+                )
+
+                pending_arguments["confirmed"] = True
+
+                self.confirmation_manager.set_pending(
+                    action=action,
+                    arguments=pending_arguments,
+                    message=confirmation_message,
+                    original_request=user_input,
+                )
+
+                print(
+                    "🔐 Confirmation required."
+                )
+
+                return confirmation_message
             try:
 
                 result = (
@@ -1595,6 +1770,31 @@ class Agent:
                     "success": False,
                     "error": str(e),
                 }
+
+            # -------------------------------------------------
+            # OBSERVE RESULT
+            # -------------------------------------------------
+
+            observation = self.observe_result(
+                step,
+                result,
+            )
+
+            if observation.get("success"):
+                print(
+                    f"👀 Agent observed: "
+                    f"step {step_number} succeeded."
+                )
+            else:
+                print(
+                    f"👀 Agent observed: "
+                    f"step {step_number} failed."
+                )
+
+                print(
+                    f"   Reason: "
+                    f"{observation.get('message')}"
+                )
 
             # -------------------------------------------------
             # CHECK CONFIRMATION
@@ -1726,7 +1926,102 @@ class Agent:
 
                 return confirmation_message
             
+         
+            # -------------------------------------------------
+            # VERIFY RESULT
+            # -------------------------------------------------
 
+            verified = self.verify_result(
+                step,
+                result,
+            )
+
+            if verified:
+
+                print(
+                    f"🔎 Agent verified: "
+                    f"step {step_number} completed successfully."
+                )
+
+            else:
+
+                print(
+                    f"🔎 Agent verification failed "
+                    f"for step {step_number}."
+                )
+
+                failure = self.analyze_failure(
+                    step,
+                    result,
+                )
+
+                print(
+                    f"   Failure analysis: "
+                    f"{failure}"
+                )
+
+                # -------------------------------------------------
+                # EXECUTE RECOVERY PLAN
+                # -------------------------------------------------
+
+                recovery = self.run_recovery(
+                    user_input=user_input,
+                    failed_step=failure,
+                    completed_steps=completed_steps,
+                    attempt=1,
+                    max_attempts=2,
+                )
+
+                if recovery.get("success"):
+
+                    print(
+                        "🧠 Agent recovery plan is ready."
+                    )
+
+                    recovery_plan = recovery.get(
+                        "plan"
+                    )
+
+                    print(
+                        "🧩 Executing recovery plan..."
+                    )
+
+                    recovery_result = (
+                        self.execute_recovery_plan_steps(
+                            recovery_plan
+                        )
+                    )
+
+                    if recovery_result.get(
+                        "success"
+                    ):
+
+                        print(
+                            "✅ Recovery plan "
+                            "completed successfully."
+                        )
+
+                    else:
+
+                        print(
+                            "❌ Recovery plan "
+                            "execution failed."
+                        )
+
+                        print(
+                            f"   Reason: "
+                            f"{recovery_result.get('error')}"
+                        )
+                else:
+
+                    print(
+                        "❌ Agent recovery failed."
+                    )
+
+                    print(
+                        f"   Reason: "
+                        f"{recovery.get('error')}"
+                    )
 
             # -------------------------------------------------
             # NORMAL RESULT
@@ -1885,6 +2180,8 @@ class Agent:
         )
 
         return final_response
+
+    
     # =========================================================
     # PLAN HELPERS
     # =========================================================
@@ -1906,6 +2203,505 @@ class Agent:
     def clear_plan(self):
         self.planner.clear_plan()
 
+
+    # =========================================================
+    # AGENT OBSERVATION
+    # =========================================================
+
+    def observe_result(self, step, result):
+        """
+        Analyze the result of an executed step.
+
+        Returns a normalized observation that the agent
+        can use for verification and re-planning.
+        """
+
+        if not isinstance(result, dict):
+            return {
+                "success": False,
+                "status": "invalid_result",
+                "message": "Tool returned an invalid result.",
+                "step": step.get("step"),
+                "action": step.get("action"),
+            }
+
+        success = result.get(
+            "success",
+            False,
+        )
+
+        if success:
+            return {
+                "success": True,
+                "status": "success",
+                "message": "Step executed successfully.",
+                "step": step.get("step"),
+                "action": step.get("action"),
+                "result": result.get(
+                    "result",
+                    result,
+                ),
+            }
+
+        return {
+            "success": False,
+            "status": "failed",
+            "message": result.get(
+                "error",
+                "Step execution failed.",
+            ),
+            "step": step.get("step"),
+            "action": step.get("action"),
+            "result": result.get(
+                "result",
+                {},
+            ),
+        }
+
+    # =========================================================
+    # AGENT VERIFICATION
+    # =========================================================
+
+    def verify_result(self, step, result):
+        """
+        Verify whether a tool execution produced a valid
+        successful result.
+
+        This is intentionally conservative:
+        a tool must explicitly report success=True.
+        """
+
+        if not isinstance(result, dict):
+            return False
+
+        if not result.get(
+            "success",
+            False,
+        ):
+            return False
+
+        return True
+
+    # =========================================================
+    # AGENT FAILURE ANALYSIS
+    # =========================================================
+
+    def analyze_failure(
+        self,
+        step,
+        result,
+    ):
+        """
+        Build structured information about a failed step.
+        This information will later be supplied to the
+        Planner for re-planning.
+        """
+
+        if not isinstance(result, dict):
+            return {
+                "step": step.get("step"),
+                "action": step.get("action"),
+                "error": "Invalid tool result.",
+            }
+
+        return {
+            "step": step.get("step"),
+            "action": step.get("action"),
+            "description": step.get(
+                "description",
+                "",
+            ),
+            "arguments": step.get(
+                "arguments",
+                {},
+            ),
+            "error": result.get(
+                "error",
+                "Unknown error.",
+            ),
+            "result": result.get(
+                "result",
+                {},
+            ),
+        }
+
+    # =========================================================
+    # AGENT RE-PLAN
+    # =========================================================
+
+    def create_recovery_plan(
+        self,
+        user_input,
+        failed_step,
+        completed_steps,
+    ):
+        """
+        Create a new plan after an execution failure.
+
+        The planner receives:
+        - Original user request
+        - Failed step
+        - Error information
+        - Previously completed steps
+        """
+
+        recovery_context = (
+            self.build_planner_context()
+        )
+
+        recovery_context += "\n\n"
+        recovery_context += (
+            "IMPORTANT: The previous execution "
+            "attempt failed."
+        )
+
+        recovery_context += "\n"
+        recovery_context += (
+            f"Failed step: "
+            f"{failed_step.get('step')}"
+        )
+
+        recovery_context += "\n"
+        recovery_context += (
+            f"Failed action: "
+            f"{failed_step.get('action')}"
+        )
+
+        recovery_context += "\n"
+        recovery_context += (
+            f"Failure: "
+            f"{failed_step.get('error', 'Unknown error.')}"
+        )
+
+        recovery_context += "\n"
+        recovery_context += (
+            "Create an alternative recovery plan. "
+            "Do not blindly repeat the exact failed action."
+        )
+
+        if completed_steps:
+
+            recovery_context += "\n\n"
+            recovery_context += (
+                "Previously completed steps:"
+            )
+
+            for step_number, result in (
+                completed_steps.items()
+            ):
+
+                recovery_context += "\n"
+                recovery_context += (
+                    f"Step {step_number}: "
+                    f"{result.get('action')} "
+                    f"→ "
+                    f"{'success' if result.get('success') else 'failed'}"
+                )
+
+        try:
+
+            new_plan = self.planner.create_plan(
+                user_input,
+                context=recovery_context,
+            )
+
+            return new_plan
+
+        except Exception as e:
+
+            print(
+                f"❌ Recovery planning failed: {e}"
+            )
+
+            return None
+
+
+    # =========================================================
+    # AGENT RECOVERY EXECUTION
+    # =========================================================
+
+    def execute_recovery_plan(
+        self,
+        user_input,
+        failed_step,
+        completed_steps,
+        max_attempts=2,
+    ):
+        """
+        Create and execute an alternative recovery plan
+        after a step failure.
+        """
+
+        print(
+            "🧠 Agent: creating recovery plan..."
+        )
+
+        recovery_plan = self.create_recovery_plan(
+            user_input=user_input,
+            failed_step=failed_step,
+            completed_steps=completed_steps,
+        )
+
+        if not recovery_plan:
+            print(
+                "❌ Agent: recovery plan could not be created."
+            )
+            return {
+                "success": False,
+                "error": "Recovery plan could not be created.",
+            }
+
+        print(
+            "🧩 Agent: recovery plan created."
+        )
+
+        return {
+            "success": True,
+            "plan": recovery_plan,
+        }
+
+    
+    # =========================================================
+    # AGENT RECOVERY LOOP
+    # =========================================================
+    def run_recovery(
+        self,
+        user_input,
+        failed_step,
+        completed_steps,
+        attempt=1,
+        max_attempts=2,
+    ):
+        """
+        Create and execute recovery plans.
+
+        If a recovery plan fails, another recovery plan
+        may be created until max_attempts is reached.
+        """
+
+        if attempt > max_attempts:
+
+            print(
+                "🛑 Agent recovery limit reached."
+            )
+
+            return {
+                "success": False,
+                "error": (
+                    "Maximum recovery attempts reached."
+                ),
+            }
+
+        print(
+            f"🔄 Agent recovery attempt "
+            f"{attempt}/{max_attempts}"
+        )
+
+        recovery = self.execute_recovery_plan(
+            user_input=user_input,
+            failed_step=failed_step,
+            completed_steps=completed_steps,
+        )
+
+        if not recovery.get("success"):
+
+            return {
+                "success": False,
+                "error": (
+                    recovery.get(
+                        "error",
+                        "Recovery planning failed.",
+                    )
+                ),
+            }
+
+        recovery_plan = recovery.get(
+            "plan"
+        )
+
+        if not recovery_plan:
+
+            return {
+                "success": False,
+                "error": "Recovery plan is empty.",
+            }
+
+        print(
+            "🧩 Agent: recovery plan received."
+        )
+
+        execution = (
+            self.execute_recovery_plan_steps(
+                recovery_plan
+            )
+        )
+
+        if execution.get("success"):
+
+            print(
+                "✅ Recovery completed successfully."
+            )
+
+            return {
+                "success": True,
+                "plan": recovery_plan,
+                "attempt": attempt,
+            }
+
+        # -----------------------------------------------------
+        # RECOVERY FAILED
+        # -----------------------------------------------------
+
+        print(
+            "❌ Recovery plan failed."
+        )
+
+        failed_recovery_step = execution.get(
+            "failed_step"
+        )
+
+        recovery_result = execution.get(
+            "result",
+            {},
+        )
+
+        if not failed_recovery_step:
+
+            return {
+                "success": False,
+                "error": execution.get(
+                    "error",
+                    "Recovery execution failed.",
+                ),
+            }
+
+        failed_execution = (
+            self.analyze_failure(
+                failed_recovery_step,
+                recovery_result,
+            )
+        )
+
+        print(
+            "🧠 Agent: analyzing recovery failure..."
+        )
+
+        return self.run_recovery(
+            user_input=user_input,
+            failed_step=failed_execution,
+            completed_steps=completed_steps,
+            attempt=attempt + 1,
+            max_attempts=max_attempts,
+        )
+    
+
+    # =========================================================
+    # EXECUTE RECOVERY PLAN
+    # =========================================================
+
+    def execute_recovery_plan_steps(
+        self,
+        recovery_plan,
+    ):
+        """
+        Execute the steps generated by the recovery planner.
+
+        This method intentionally handles only the basic
+        recovery execution flow. Confirmation, dependencies,
+        and advanced recovery will be added separately.
+        """
+
+        if not isinstance(recovery_plan, list):
+            return {
+                "success": False,
+                "error": "Invalid recovery plan.",
+            }
+
+        for recovery_step in recovery_plan:
+
+            action = recovery_step.get(
+                "action"
+            )
+
+            arguments = recovery_step.get(
+                "arguments",
+                {},
+            )
+
+            if not action:
+                print(
+                    "⚠️ Recovery step has no action."
+                )
+                continue
+
+            print(
+                f"🔄 Recovery executing: "
+                f"{action}"
+            )
+
+            try:
+
+                result = (
+                    self.brain.tools.execute(
+                        action,
+                        **arguments,
+                    )
+                )
+
+            except Exception as e:
+
+                result = {
+                    "success": False,
+                    "error": str(e),
+                }
+
+            observation = self.observe_result(
+                recovery_step,
+                result,
+            )
+
+            if observation.get("success"):
+
+                print(
+                    "👀 Recovery step observed "
+                    "successfully."
+                )
+
+                verified = self.verify_result(
+                    recovery_step,
+                    result,
+                )
+
+                if verified:
+
+                    print(
+                        "🔎 Recovery step verified "
+                        "successfully."
+                    )
+
+                    continue
+
+            print(
+                "❌ Recovery step failed."
+            )
+
+            return {
+                "success": False,
+                "error": result.get(
+                    "error",
+                    "Recovery step failed.",
+                ),
+                "failed_step": recovery_step,
+                "result": result,
+            }
+
+        return {
+            "success": True,
+            "message": (
+                "Recovery plan executed successfully."
+            ),
+        }
+    
     # =========================================================
     # BUILD PLANNER CONTEXT
     # =========================================================
@@ -1950,3 +2746,1215 @@ class Agent:
         return "\n".join(
             context_lines
         )
+
+    # =========================================================
+    # LOCAL TOOL RESPONSE
+    # =========================================================
+
+    def build_local_tool_response(self,user_input,results):
+        """
+        Build a simple natural-language response for
+        successfully executed local tools.
+        """
+
+        if not results:
+            return None
+
+        system_result = None
+        battery_result = None
+        lines = []
+        # -----------------------------------------------------
+        # COMPLETE PC INFORMATION
+        # -----------------------------------------------------
+
+        actions = [
+            item.get("action")
+            for item in results
+            if isinstance(item, dict)
+        ]
+
+        if (
+            "get_system_info" in actions
+            and "get_battery" in actions
+        ):
+
+            
+
+            for item in results:
+
+                if item.get("action") == "get_system_info":
+                    system_result = item.get(
+                        "result",
+                        {},
+                    )
+
+                elif item.get("action") == "get_battery":
+                    battery_result = item.get(
+                        "result",
+                        {},
+                    )
+
+            # ---------------------------------------------
+            # SYSTEM INFORMATION
+            # ---------------------------------------------
+
+            if isinstance(system_result, dict):
+
+                machine = system_result.get("machine")
+                operating_system = system_result.get(
+                    "operating_system"
+                )
+                os_version = system_result.get(
+                    "os_version"
+                )
+
+                cpu = system_result.get(
+                    "cpu",
+                    {},
+                )
+
+                ram = system_result.get(
+                    "ram",
+                    {},
+                )
+
+                disk = system_result.get(
+                    "disk",
+                    {},
+                )
+
+                if machine:
+                    lines.append(
+                        f"Machine: {machine}"
+                    )
+
+                if operating_system:
+                    lines.append(
+                        f"OS: {operating_system}"
+                    )
+
+                if os_version:
+                    lines.append(
+                        f"OS Version: {os_version}"
+                    )
+
+                # CPU
+                if isinstance(cpu, dict):
+
+                    cpu_usage = cpu.get(
+                        "usage_percent"
+                    )
+
+                    processor = cpu.get(
+                        "processor"
+                    )
+
+                    logical_cpus = cpu.get(
+                        "logical_cpus"
+                    )
+
+                    physical_cpus = cpu.get(
+                        "physical_cpus"
+                    )
+
+                    if processor:
+                        lines.append(
+                            f"Processor: {processor}"
+                        )
+
+                    if cpu_usage is not None:
+                        lines.append(
+                            f"CPU Usage: {cpu_usage}%"
+                        )
+
+                    if physical_cpus is not None:
+                        lines.append(
+                            f"Physical CPU Cores: {physical_cpus}"
+                        )
+
+                    if logical_cpus is not None:
+                        lines.append(
+                            f"Logical CPU Cores: {logical_cpus}"
+                        )
+
+                # RAM
+                if isinstance(ram, dict):
+
+                    ram_usage = ram.get(
+                        "usage_percent"
+                    )
+
+                    total_ram = ram.get(
+                        "total_gb"
+                    )
+
+                    used_ram = ram.get(
+                        "used_gb"
+                    )
+
+                    available_ram = ram.get(
+                        "available_gb"
+                    )
+
+                    if ram_usage is not None:
+                        lines.append(
+                            f"RAM Usage: {ram_usage}%"
+                        )
+
+                    if total_ram is not None:
+                        lines.append(
+                            f"RAM Total: {total_ram} GB"
+                        )
+
+                    if used_ram is not None:
+                        lines.append(
+                            f"RAM Used: {used_ram} GB"
+                        )
+
+                    if available_ram is not None:
+                        lines.append(
+                            f"RAM Available: {available_ram} GB"
+                        )
+
+                # Disk
+                if isinstance(disk, dict):
+
+                    drive = disk.get(
+                        "drive"
+                    )
+
+                    disk_usage = disk.get(
+                        "usage_percent"
+                    )
+
+                    total_disk = disk.get(
+                        "total_gb"
+                    )
+
+                    used_disk = disk.get(
+                        "used_gb"
+                    )
+
+                    free_disk = disk.get(
+                        "free_gb"
+                    )
+
+                    if drive:
+                        lines.append(
+                            f"Disk ({drive}):"
+                        )
+
+                    if disk_usage is not None:
+                        lines.append(
+                            f"Disk Usage: {disk_usage}%"
+                        )
+
+                    if total_disk is not None:
+                        lines.append(
+                            f"Disk Total: {total_disk} GB"
+                        )
+
+                    if used_disk is not None:
+                        lines.append(
+                            f"Disk Used: {used_disk} GB"
+                        )
+
+                    if free_disk is not None:
+                        lines.append(
+                            f"Disk Free: {free_disk} GB"
+                        )
+
+            # ---------------------------------------------
+            # BATTERY INFORMATION
+            # ---------------------------------------------
+
+            if isinstance(battery_result, dict):
+
+                battery_message = battery_result.get(
+                    "message"
+                )
+
+                if battery_message:
+
+                    lines.append(
+                        str(battery_message)
+                    )
+
+                else:
+
+                    percentage = battery_result.get(
+                        "percentage"
+                    )
+
+                    charging = battery_result.get(
+                        "charging"
+                    )
+
+                    if percentage is not None:
+
+                        if charging:
+                            lines.append(
+                                f"Battery: {percentage}% "
+                                "and charging."
+                            )
+                        else:
+                            lines.append(
+                                f"Battery: {percentage}% "
+                                "and not charging."
+                            )
+
+                    else:
+
+                        lines.append(
+                            "Battery: No battery detected. "
+                            "The computer appears to be a desktop PC."
+                        )
+
+            if lines:
+                return "\n".join(lines)
+
+        last_result = results[-1]
+
+        action = last_result.get(
+            "action",
+            "",
+        )
+
+        if not last_result.get(
+            "success",
+            False,
+        ):
+
+            error = last_result.get(
+                "error"
+            )
+
+            if action == "delete_automation" and error:
+
+                return str(error)
+
+            return None
+
+        result = last_result.get(
+            "result",
+            {},
+        )
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            result = {}
+
+
+
+        # -----------------------------------------------------
+        # FEATURES
+        # -----------------------------------------------------
+        if action == "get_available_features":
+
+            features = result.get(
+                "features",
+                []
+            )
+
+            count = result.get(
+                "count",
+                len(features)
+            )
+
+            if not features:
+
+                return (
+                    "No JARVIS features are currently registered."
+                )
+
+            lines = [
+                f"JARVIS currently has {count} available features:"
+            ]
+
+            for index, feature in enumerate(
+                features,
+                start=1
+            ):
+                lines.append(
+                    f"{index}. {feature}"
+                )
+
+            return "\n".join(lines)
+        # -----------------------------------------------------
+        # SYSTEM
+        # -----------------------------------------------------
+
+        if action == "get_system_info":
+
+            return (
+                result.get("message")
+                or "System information retrieved successfully."
+            )
+
+        if action == "get_battery":
+
+            return (
+                result.get("message")
+                or "Battery information retrieved successfully."
+            )
+
+        # -----------------------------------------------------
+        # VOLUME
+        # -----------------------------------------------------
+
+        if action == "get_volume":
+
+            volume = result.get(
+                "volume",
+                result.get("level"),
+            )
+
+            if volume is not None:
+                return (
+                    f"Current volume is {volume}%."
+                )
+
+            return "Current volume retrieved successfully."
+
+        if action == "increase_volume":
+            return "Volume increased."
+
+        if action == "decrease_volume":
+            return "Volume decreased."
+
+        if action == "mute_volume":
+            return "Volume muted."
+
+        if action == "unmute_volume":
+            return "Volume unmuted."
+
+        # -----------------------------------------------------
+        # SCREENSHOT
+        # -----------------------------------------------------
+
+        if action == "take_screenshot":
+            return (
+                result.get("message")
+                or "Screenshot captured successfully."
+            )
+
+        # -----------------------------------------------------
+        # WINDOW MANAGEMENT
+        # -----------------------------------------------------
+
+        if action == "get_open_windows":
+
+            count = result.get(
+                "count"
+            )
+
+            if count is not None:
+                return (
+                    f"There are {count} visible windows open."
+                )
+
+            return "Open windows retrieved successfully."
+
+        if action == "minimize_window":
+
+            return (
+                result.get("message")
+                or "Window minimized successfully."
+            )
+
+        if action == "maximize_window":
+
+            return (
+                result.get("message")
+                or "Window maximized successfully."
+            )
+
+        if action == "restore_window":
+
+            return (
+                result.get("message")
+                or "Window restored successfully."
+            )
+
+        if action == "focus_window":
+
+            return (
+                result.get("message")
+                or "Window focused successfully."
+            )
+
+        if action == "show_desktop":
+
+            return (
+                result.get("message")
+                or "Desktop is now visible."
+            )
+
+        # -----------------------------------------------------
+        # KEYBOARD
+        # -----------------------------------------------------
+
+        if action == "type_text":
+
+            return (
+                result.get("message")
+                or "Text typed successfully."
+            )
+
+        if action == "press_key":
+
+            key = result.get(
+                "key"
+            )
+
+            if key:
+                return f"Pressed {key}."
+
+            return (
+                result.get("message")
+                or "Key pressed successfully."
+            )
+
+        if action == "hotkey":
+
+            keys = result.get(
+                "keys"
+            )
+
+            if isinstance(
+                keys,
+                list,
+            ):
+                return (
+                    f"Pressed {'+'.join(keys)}."
+                )
+
+            return (
+                result.get("message")
+                or "Keyboard shortcut executed."
+            )
+
+        # -----------------------------------------------------
+        # INTERNET
+        # -----------------------------------------------------
+
+        if action == "check_internet_connection":
+
+            connected = result.get(
+                "connected"
+            )
+
+            if connected is True:
+                return "Internet connection is working."
+
+            if connected is False:
+                return "Internet connection is not available."
+
+        if action == "get_internet_info":
+
+            return (
+                result.get("message")
+                or "Internet information retrieved successfully."
+            )
+
+        if action == "run_internet_speed_test":
+
+            download = result.get(
+                "download_mbps",
+                0
+            )
+
+            upload = result.get(
+                "upload_mbps",
+                0
+            )
+
+            ping = result.get(
+                "ping_ms",
+                0
+            )
+
+            isp = result.get(
+                "isp",
+                "Unknown"
+            )
+
+            server = result.get(
+                "server",
+                "Unknown"
+            )
+
+            country = result.get(
+                "server_country",
+                "Unknown"
+            )
+
+            return (
+                "Internet speed test completed.\n"
+                f"Download: {download} Mbps\n"
+                f"Upload: {upload} Mbps\n"
+                f"Ping: {ping} ms\n"
+                f"ISP: {isp}\n"
+                f"Server: {server}, {country}"
+            )
+
+        if action == "test_download_speed":
+
+            speed = result.get(
+                "download_mbps"
+            )
+
+            if speed is not None:
+                return (
+                    f"Download speed is {speed} Mbps."
+                )
+
+        if action == "test_upload_speed":
+
+            speed = result.get(
+                "upload_mbps"
+            )
+
+            if speed is not None:
+                return (
+                    f"Upload speed is {speed} Mbps."
+                )
+
+        if action == "test_ping":
+
+            ping = result.get(
+                "ping_ms"
+            )
+
+            if ping is not None:
+                return (
+                    f"Ping is {ping} milliseconds."
+                )
+
+        # -----------------------------------------------------
+        # CLIPBOARD
+        # -----------------------------------------------------
+
+        if action == "read_clipboard":
+
+            content = result.get(
+                "content",
+                result.get(
+                    "text",
+                    "",
+                ),
+            )
+
+            if content:
+                return (
+                    f"Your clipboard contains: {content}"
+                )
+
+            return "Your clipboard is empty."
+
+        if action == "copy_to_clipboard":
+
+            return (
+                result.get("message")
+                or "Text copied to the clipboard."
+            )
+
+        if action == "clear_clipboard":
+
+            return (
+                result.get("message")
+                or "Clipboard cleared."
+            )
+
+        if action == "get_clipboard_history":
+
+            return (
+                result.get("message")
+                or "Clipboard history retrieved."
+            )
+
+        if action == "search_clipboard_history":
+
+            return (
+                result.get("message")
+                or "Clipboard history search completed."
+            )
+
+        if action == "delete_clipboard_history":
+
+            return (
+                result.get("message")
+                or "Clipboard history deleted."
+            )
+
+        # -----------------------------------------------------
+        # APPLICATION
+        # -----------------------------------------------------
+
+        if action == "open_application":
+
+            app_name = result.get(
+                "application",
+                result.get(
+                    "app_name",
+                    "Application",
+                ),
+            )
+
+            return (
+                f"{app_name} has been opened."
+            )
+
+        # -----------------------------------------------------
+        # FILES / FOLDERS
+        # -----------------------------------------------------
+
+        if action == "open_file":
+            return (
+                result.get("message")
+                or "File opened successfully."
+            )
+
+        if action == "open_folder":
+            return (
+                result.get("message")
+                or "Folder opened successfully."
+            )
+
+        if action == "create_file":
+            return (
+                result.get("message")
+                or "File created successfully."
+            )
+
+        if action == "create_folder":
+            return (
+                result.get("message")
+                or "Folder created successfully."
+            )
+
+        if action == "rename_file":
+            return (
+                result.get("message")
+                or "File or folder renamed successfully."
+            )
+
+        if action == "copy_file":
+            return (
+                result.get("message")
+                or "File or folder copied successfully."
+            )
+
+        if action == "move_file":
+            return (
+                result.get("message")
+                or "File or folder moved successfully."
+            )
+
+        # -----------------------------------------------------
+        # REMINDERS
+        # -----------------------------------------------------
+
+        if action == "create_reminder":
+            return (
+                result.get("message")
+                or "Reminder created successfully."
+            )
+
+        if action == "cancel_reminder":
+            return (
+                result.get("message")
+                or "Reminder cancelled."
+            )
+
+        if action == "complete_reminder":
+            return (
+                result.get("message")
+                or "Reminder completed."
+            )
+
+        if action == "delete_reminder":
+            return (
+                result.get("message")
+                or "Reminder deleted."
+            )
+
+        # -----------------------------------------------------
+        # AUTOMATIONS
+        # -----------------------------------------------------
+
+        if action == "create_automation":
+
+            name = result.get(
+                "name",
+                "Automation",
+            )
+
+            event = result.get(
+                "event",
+                "Unknown",
+            )
+
+            enabled = result.get(
+                "enabled",
+                True,
+            )
+
+            status = (
+                "enabled"
+                if enabled
+                else "disabled"
+            )
+
+            return (
+                f"Automation '{name}' created successfully. "
+                f"Event: {event}. "
+                f"Status: {status}."
+            )
+        
+        if action == "list_automations":
+            automations = result.get("automations", [])
+
+            if not automations:
+                return "There are no configured automations."
+
+            lines = ["Here are your current automations:"]
+
+            for automation in automations:
+
+                name = automation.get(
+                    "name",
+                    "Unknown",
+                )
+
+                event = automation.get(
+                    "event",
+                    "Unknown",
+                )
+
+                enabled = automation.get(
+                    "enabled",
+                    False,
+                )
+
+                status = (
+                    "enabled"
+                    if enabled
+                    else "disabled"
+                )
+
+                condition = automation.get(
+                    "condition"
+                )
+
+                condition_text = ""
+
+                if isinstance(condition, dict):
+
+                    metric = condition.get(
+                        "metric"
+                    )
+
+                    operator = condition.get(
+                        "operator"
+                    )
+
+                    value = condition.get(
+                        "value"
+                    )
+
+                    if (
+                        metric
+                        and operator
+                        and value is not None
+                    ):
+                        condition_text = (
+                            f", {metric.upper()} "
+                            f"{operator} {value:g}"
+                        )
+
+                lines.append(
+                    f"- {name}: "
+                    f"{status} "
+                    f"({event}{condition_text})"
+                )
+
+            return "\n".join(lines)
+
+        if action == "enable_automation":
+
+            name = result.get(
+                "name",
+                "Automation",
+            )
+
+            return (
+                f"{name} has been enabled."
+            )
+
+        if action == "disable_automation":
+
+            name = result.get(
+                "name",
+                "Automation",
+            )
+
+            return (
+                f"{name} has been disabled."
+            )
+
+        if action == "automation_status":
+
+            name = result.get(
+                "name",
+                "Automation",
+            )
+
+            event = result.get(
+                "event",
+                "Unknown",
+            )
+
+            enabled = result.get(
+                "enabled",
+                False,
+            )
+
+            status = (
+                "enabled"
+                if enabled
+                else "disabled"
+            )
+
+            return (
+                f"{name} is currently {status}. "
+                f"Event: {event}."
+            )
+
+
+        if action == "delete_automation":
+
+            name = result.get(
+                "name",
+                "Automation",
+            )
+
+            if not name:
+                name = "Automation"
+
+            return (
+                f"Automation '{name}' "
+                "deleted successfully."
+            )
+        # -----------------------------------------------------
+        # SECURITY EVENT HISTORY
+        # -----------------------------------------------------
+
+        if action == "get_recent_security_events":
+
+            events = result.get(
+                "events",
+                [],
+            )
+
+            count = result.get(
+                "count",
+                len(events),
+            )
+
+            if not events:
+
+                return (
+                    "There are no recent security events."
+                )
+
+            lines = [
+                f"I found {count} recent security event"
+                f"{'s' if count != 1 else ''}:"
+            ]
+
+            for index, event in enumerate(
+                events,
+                start=1,
+            ):
+
+                source = event.get(
+                    "source",
+                    "unknown",
+                )
+
+                event_type = event.get(
+                    "type",
+                    "SECURITY_EVENT",
+                )
+
+                risk = event.get(
+                    "risk",
+                    "UNKNOWN",
+                )
+
+                reason = event.get(
+                    "reason",
+                    "",
+                )
+
+                lines.append(
+                    f"{index}. "
+                    f"Risk: {risk} | "
+                    f"Source: {source} | "
+                    f"Event: {event_type}"
+                )
+
+                if reason:
+                    lines.append(
+                        f"   Reason: {reason}"
+                    )
+
+            return "\n".join(lines)
+
+        # -----------------------------------------------------
+        # LATEST SECURITY EVENT
+        # -----------------------------------------------------
+
+        if action == "get_latest_security_event":
+
+            event = result.get(
+                "event"
+            )
+
+            if not event:
+
+                return (
+                    "There are no security events yet."
+                )
+
+            source = event.get(
+                "source",
+                "unknown",
+            )
+
+            event_type = event.get(
+                "type",
+                "SECURITY_EVENT",
+            )
+
+            risk = event.get(
+                "risk",
+                "UNKNOWN",
+            )
+
+            reason = event.get(
+                "reason",
+                "",
+            )
+
+            data = event.get(
+                "data",
+                {},
+            )
+
+            lines = [
+                "Latest security event:",
+                f"Risk: {risk}",
+                f"Source: {source}",
+                f"Event: {event_type}",
+            ]
+
+            if reason:
+                lines.append(
+                    f"Reason: {reason}"
+                )
+
+            if isinstance(data, dict):
+
+                if data.get("process"):
+                    lines.append(
+                        f"Process: {data.get('process')}"
+                    )
+
+                if data.get("pid"):
+                    lines.append(
+                        f"PID: {data.get('pid')}"
+                    )
+
+                if data.get("remote_ip"):
+                    lines.append(
+                        f"Remote IP: {data.get('remote_ip')}"
+                    )
+
+                if data.get("remote_port"):
+                    lines.append(
+                        f"Remote Port: {data.get('remote_port')}"
+                    )
+
+                if data.get("name"):
+                    lines.append(
+                        f"Name: {data.get('name')}"
+                    )
+
+                if data.get("path"):
+                    lines.append(
+                        f"Path: {data.get('path')}"
+                    )
+
+            return "\n".join(lines)
+
+        # -----------------------------------------------------
+        # FILTERED SECURITY EVENTS
+        # -----------------------------------------------------
+
+        if action == "get_security_events":
+
+            events = result.get(
+                "events",
+                [],
+            )
+
+            count = result.get(
+                "count",
+                len(events),
+            )
+
+            filters = result.get(
+                "filters",
+                {},
+            )
+
+            if not events:
+                return "No security events matched the requested filter."
+
+            filter_parts = []
+
+            if filters.get("risk"):
+                filter_parts.append(
+                    f"risk {filters['risk']}"
+                )
+
+            if filters.get("source"):
+                filter_parts.append(
+                    f"source {filters['source']}"
+                )
+
+            if filters.get("event_type"):
+                filter_parts.append(
+                    f"type {filters['event_type']}"
+                )
+
+            if filter_parts:
+                heading = (
+                    "I found "
+                    f"{count} security event"
+                    f"{'s' if count != 1 else ''} "
+                    "matching "
+                    + ", ".join(filter_parts)
+                    + ":"
+                )
+            else:
+                heading = (
+                    f"I found {count} security event"
+                    f"{'s' if count != 1 else ''}:"
+                )
+
+            lines = [heading]
+
+            for index, event in enumerate(
+                events,
+                start=1,
+            ):
+
+                lines.append(
+                    f"{index}. "
+                    f"Risk: {event.get('risk', 'UNKNOWN')} | "
+                    f"Source: {event.get('source', 'unknown')} | "
+                    f"Event: {event.get('type', 'SECURITY_EVENT')}"
+                )
+
+                reason = event.get(
+                    "reason",
+                    "",
+                )
+
+                if reason:
+                    lines.append(
+                        f"   Reason: {reason}"
+                    )
+
+            return "\n".join(lines)
+
+        # -----------------------------------------------------
+        # SECURITY SUMMARY
+        # -----------------------------------------------------
+
+        if action == "get_security_summary":
+
+            total_events = result.get(
+                "total_events",
+                0,
+            )
+
+            risk_counts = result.get(
+                "risk_counts",
+                {},
+            )
+
+            source_counts = result.get(
+                "source_counts",
+                {},
+            )
+
+            lines = [
+                "Security Summary:",
+                f"Total events: {total_events}",
+                f"LOW: {risk_counts.get('LOW', 0)}",
+                f"MEDIUM: {risk_counts.get('MEDIUM', 0)}",
+                f"HIGH: {risk_counts.get('HIGH', 0)}",
+                f"CRITICAL: {risk_counts.get('CRITICAL', 0)}",
+                "",
+                "Sources:",
+            ]
+
+            if source_counts:
+
+                for source, count in source_counts.items():
+
+                    lines.append(
+                        f"{source}: {count}"
+                    )
+
+            else:
+
+                lines.append(
+                    "No security events recorded."
+                )
+
+            return "\n".join(lines)
+
+        # -----------------------------------------------------
+        # WEB RESEARCH
+        # -----------------------------------------------------
+
+        if action == "web_research":
+
+            # Web research contains useful information
+            # that should be passed to Gemini for the
+            # final natural-language response.
+            return None
+        # -----------------------------------------------------
+        # GENERIC TOOL MESSAGE
+        # -----------------------------------------------------
+
+        message = result.get(
+            "message"
+        )
+
+        if message:
+            return str(message)
+
+        return (
+            f"{action} completed successfully."
+            if action
+            else "Task completed successfully."
+        )
+

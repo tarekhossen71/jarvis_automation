@@ -39,6 +39,11 @@ def show_notification(
         }
 
     except Exception as e:
+
+        print(
+            f"❌ Desktop notification error: {e}"
+        )
+
         return {
             "success": False,
             "error": str(e),

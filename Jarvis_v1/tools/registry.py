@@ -43,6 +43,20 @@ class ToolRegistry:
         try:
             result = tool["function"](**kwargs)
 
+            # Preserve the original registry structure,
+            # but also preserve a tool's own success=False.
+            if isinstance(result, dict) and "success" in result:
+
+                if result.get("success") is False:
+                    return {
+                        "success": False,
+                        "error": result.get(
+                            "error",
+                            "Tool execution failed.",
+                        ),
+                        "result": result,
+                    }
+
             return {
                 "success": True,
                 "result": result,

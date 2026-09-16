@@ -7,10 +7,15 @@ from output.voice_output import VoiceOutput
 class OutputManager:
 
     def __init__(self):
+
         self.mode = OUTPUT_MODE
 
         self.text_output = TextOutput()
         self.voice_output = VoiceOutput()
+
+    # =========================================================
+    # SET MODE
+    # =========================================================
 
     def set_mode(self, mode):
 
@@ -29,38 +34,34 @@ class OutputManager:
 
         self.mode = mode
 
+    # =========================================================
+    # SEND
+    # =========================================================
+
     def send(self, message, input_mode=None):
 
         if not message:
             return
 
-
-        # ==========================================
         # TEXT OUTPUT
-        # ==========================================
-
         if self.mode == "text":
+
             self.text_output.send(message)
             return
 
-
-        # ==========================================
         # VOICE OUTPUT
-        # ==========================================
-
         if self.mode == "voice":
+
             self.voice_output.speak(message)
             return
 
-
-        # ==========================================
         # AUTO MODE
-        # ==========================================
-
         if self.mode == "auto":
 
             if input_mode == "voice":
+
                 self.voice_output.speak(message)
 
             else:
+
                 self.text_output.send(message)

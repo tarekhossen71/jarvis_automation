@@ -271,20 +271,9 @@ def _open_url(
 
             try:
 
-                # -----------------------------------------
-                # Use Windows "start" command.
-                #
-                # This lets the already registered browser
-                # handle the URL instead of explicitly
-                # launching another browser executable.
-                # -----------------------------------------
-
                 subprocess.Popen(
                     [
-                        "cmd",
-                        "/c",
-                        "start",
-                        "",
+                        browser_path,
                         url,
                     ],
                     shell=False,
